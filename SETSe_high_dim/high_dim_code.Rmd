@@ -1,0 +1,169 @@
+---
+title: "multi-dimensional setse"
+author: "Jonathan Bourne"
+date: "02/03/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+commit c3bba66
+```{r}
+library(rsetse)
+library(dplyr)
+library(ggraph)
+library(igraph)
+library(purrr)
+```
+
+```{r}
+
+
+ nodes_df <- as_data_frame(biconnected_network, what = "vertices")
+ 
+ edges_df <- as_data_frame(biconnected_network) %>% distinct(., from, to, .keep_all = T)
+
+g <- graph_from_data_frame(edges_df, directed = FALSE, vertices = nodes_df)
+
+biconnected_network %>%
+  ggraph() + 
+  geom_edge_link() +
+  geom_node_point(aes(colour = group), size = 3) 
+```
+
+
+```{r}
+embeddings_binary <- biconnected_network %>%
+  prepare_SETSe_binary(., node_names = "name", force_var = "group", positive_value = "A") %>%
+  SETSe_auto(., k = "weight")
+
+```
+
+
+```{r}
+test <- biconnected_network %>%
+  prepare_SETSe_binary(., node_names = "name", force_var = "group", positive_value = "A") %>%
+  igraph::as_data_frame(., what = "vertices")
+
+
+test2 <- biconnected_network  %>%
+  prepare_SETSe_continuous(., node_names = "name", force_var = "force") %>%
+  igraph::as_data_frame(., what = "vertices")
+```
+
+
+
+```{r}
+# c("dim", "dim2", "dim3")
+force_names <- c("dim", "dim2")
+
+set.seed(4)
+ g <- g %>%
+   set_vertex_attr(., "dim", value = get.vertex.attribute(., "force")) %>%
+   set_vertex_attr(., "dim2", value = sample(1:10, 7)) %>%
+   set_vertex_attr(., "dim3", value = sample(1:10, 7)) %>%
+  prepare_SETSe_continuous_hd(., node_names = "name", force_var =force_names )
+ 
+ 
+ 
+ prepped_data <- SETSe_data_prep_hd(g, force = force_names , distance = "distance", mass = 1,
+                                    sparse = F, k = "weight")
+
+ node_embeddings <- prepped_data$node_embeddings
+ ten_mat <- prepped_data$ten_mat
+ non_empty_matrix <- prepped_data$non_empty_matrix
+ kvect <- prepped_data$kvect
+ dvect <- prepped_data$dvect
+ max_iter = 1000
+ coef_drag = 1
+ tol = 2e-3
+ sparse = FALSE
+ sample = 1
+ static_limit = NULL
+ tstep <- 0.02
+
+
+test <-SETSe_core_hd(node_embeddings, ten_mat, non_empty_matrix, kvect, dvect, mass = 1, tstep = 0.001,
+              max_iter = 60000, 
+                       coef_drag = 20, 
+                       tol = 2e-3, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL,
+                       noisy_termination = FALSE)
+
+test$network_dynamics %>%
+  ggplot(aes(x = Iter, y = static_force)) + geom_line()
+
+test2 <- test$node_embeddings
+
+colSums(prepped_data$node_embeddings[,-1])
+
+
+
+embeddings_data <- biconnected_network %>%
+  prepare_SETSe_continuous(., node_names = "name", force_var = "force") %>%
+  SETSe_auto(., k = "weight")
+
+```
+
+
+#peels
+
+```{r}
+force_names <- c("dim", "dim2")
+
+set.seed(4)
+ g <- generate_peels_network(LETTERS[4]) %>%
+   set_vertex_attr(., "dim", value = rnorm(40)) %>% 
+   set_vertex_attr(., "dim2", value = rnorm(40)) %>%
+  set_vertex_attr(., "dim3", value = rnorm(40)) %>%
+  prepare_SETSe_continuous_hd(., node_names = "name", force_var =force_names )
+
+ {
+  prepped_data <- SETSe_data_prep_hd(g, force = force_names , distance = "distance", mass = 1,
+                                    sparse = F, k = "k")
+  
+   node_embeddings <- prepped_data$node_embeddings
+ ten_mat <- prepped_data$ten_mat
+ non_empty_matrix <- prepped_data$non_empty_matrix
+ kvect <- prepped_data$kvect
+ dvect <- prepped_data$dvect
+ max_iter = 1000
+ coef_drag = 1
+ tol = 2e-3
+ sparse = FALSE
+ sample = 1
+ static_limit = NULL
+ tstep <- 0.02
+ 
+  }
+ 
+ 
+test <-SETSe_core_hd(node_embeddings, ten_mat, non_empty_matrix, kvect, dvect, mass = 1, tstep = 0.01,
+              max_iter = 60000, 
+                       coef_drag = 5, 
+                       tol = 2e-6, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL,
+                       noisy_termination = FALSE)
+
+
+test <-SETSe_core_time_shift_hd(node_embeddings, ten_mat, non_empty_matrix, kvect, dvect, mass = 1, tstep = 0.01,
+              max_iter = 60000, 
+                       coef_drag = 5, 
+                       tol = 2e-6, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL)
+
+test$network_dynamics %>%
+  ggplot(aes(x = Iter, y = log10(static_force))) + geom_line()
+
+
+test2 <- test$node_embeddings
+
+
+```
+

@@ -3,7 +3,11 @@ title: "Voronoi Tesselation"
 author: "Jonathan Bourne"
 date: "18/07/2019"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
+
+
 
 This script can only run with the System Dynamics script.
 It is my attempt to map LSOA/MSOA engergy use to nodes using the Voronoi tessellation.

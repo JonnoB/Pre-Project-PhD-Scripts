@@ -1,0 +1,193 @@
+---
+title: "debug_PowerGridNetworking"
+author: "Jonathan Bourne"
+date: "22/02/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Power grid networking was made before I really understood how to make package. As a result it is very sensitive. I am going to use the package "usethis" to make it much easier to run and also create a website from the documentation
+
+
+
+
+I removed
+Multi-attack
+ggpowerlaw
+
+```{r}
+library(usethis)
+library(devtools)
+```
+
+
+
+```{r}
+path <- file.path("/home/jonno/PowerGridNetworking")
+#create_package(path)
+#usethis::use_pkgdown()
+setwd(path)
+```
+
+#Other packages
+
+Add in functionality from other packages
+```{r}
+use_pipe()
+use_package("dplyr")
+use_package("igraph")
+use_package("purrr")
+use_package("stats")
+use_package("rlang")
+use_package("utils")
+use_package("animation")
+use_package("stringr")
+use_package("readr")
+use_tidy_eval()
+
+use_gpl3_license(name = "Jonathan Bourne")
+
+```
+
+#replace functions
+
+This goes through all the functions in the package and replaces the external package names with "`package name`::" this is necessary for the package to work. All the packages must be included in the description file.
+
+```{r}
+
+ls(package:rlang)
+#list all functions in the package
+#create a tibble appending "package name::"
+#"remove all the functions that use % as these won't work and pipe is included separately anyway
+append_package_name <-c("dplyr",
+        "igraph",
+        "purrr",
+        "stats",
+        "rlang",
+        "tibble",
+        "tidyr"
+        #"utils"
+         ) %>%
+  map_df(~{
+    
+    ls(paste0("package:", .x)) %>%
+      tibble(map_from = ., map_to = paste0(.x,"::", map_from))
+    
+  }) %>%
+  filter(!grepl("%", map_from),
+         !grepl("!", map_from),
+         !grepl("=", map_from),
+         !grepl("<", map_from),
+         map_to != "tibble::as_data_frame",
+         map_to != "dplyr::as_data_frame"
+         )
+
+
+target_files <- list.files(file.path(getwd(),"R"), full.names = T) 
+target_files <- target_files[!grepl("utils-pipe.R", target_files)]
+
+
+target_files %>%
+  walk(~{
+    print(basename(.x))
+    tx  <- read_lines(.x, ) 
+    
+    #don't make any changes before the first row of the function code
+    first_row <- min(grep("function\\(", tx))
+    
+    #take only the part that will be changed
+    tx2 <- tx[(first_row+1):length(tx)]
+    
+    
+    for(n in 1:nrow(append_package_name)){
+      
+      target_out <- append_package_name %>%
+        slice(n) 
+      
+      #uses negative lookahead
+      #cannot be preceded by letters or underscore or period or double colon
+      #must be followed by open bracket
+      look_for <- paste0('(?<![a-zA-Z]|(::)|_|\\.)','(',target_out$map_from,')','(\\()')
+      
+      #replace the necessary parts
+      tx2 <- str_replace_all(tx2, pattern = look_for, paste0(target_out$map_to, "("))
+      
+      
+    }
+    
+    #combine function preamble with the edited function code
+    
+    tx2 <- c(tx[1:first_row], tx2)
+    
+    writeLines(tx2, con=.x)
+    
+  })
+
+
+test <- "(vcount())"
+
+pattern_to_replace <- paste0('(?<![a-zA-Z]|(::)|_|\\.)','(',"vcount",')','(\\()')
+
+str_replace_all(test, 
+                pattern = pattern_to_replace, 
+                replacement = "xxxx(")
+
+```
+
+
+check files for what ever is needed
+
+```{r}
+
+
+
+target_files %>%
+  map_df(~{
+    tx  <- read_lines(.x ) 
+    
+    tibble(function_name = basename(.x),
+           rlang = sum(grepl(":=", tx) ),
+           igraph = sum(grepl("g Slackref", tx) )
+           )
+    
+  }) %>%
+  filter(!(rlang ==0 &igraph == 0))
+
+
+target_files2 <- list.files("/home/jonno/rSETSe/R", full.names = T) 
+target_files2 %>%
+  map_df(~{
+    tx  <- read_lines(.x ) 
+    
+    tibble(function_name = basename(.x),
+           rlang = sum(grepl(":=", tx) ),
+           rlang2 = sum(grepl("!!!", tx) ))
+    
+  }) %>%
+  filter(rlang2>0 | rlang>0)
+```
+
+```{r}
+#add citation only needs to be done once
+#use_citation()
+```
+
+
+#check for errors in the package
+
+
+```{r}
+
+document()
+check()
+
+
+```
+
+```{r}
+#usethis::use_github_action("pkgdown")#only needs to be run once
+pkgdown::build_site()
+
+```
+

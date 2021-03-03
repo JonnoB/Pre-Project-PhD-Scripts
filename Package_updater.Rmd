@@ -1,0 +1,310 @@
+---
+title: "Untitled"
+author: "Jonathan Bourne"
+date: "24/10/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#Upgrade power grid networking
+power grid networking has a lot of consistency issues.
+
+I am going to clean it up so that it is easier to use and document.
+
+This will most likely result in all old code breaking
+
+I will try to fix it where possible.
+
+
+```{r}
+library(devtools)
+library(roxygen2)
+setwd( "/home/jonno/PowerGridNetworking")
+document()
+setwd("/home/jonno")
+install("PowerGridNetworking")
+detach("package:PowerGridNetworking", unload = TRUE)
+library(PowerGridNetworking)
+```
+
+
+```{r}
+packages <- c("rlang", "tidyverse", "igraph", "devtools", "snakecase")
+
+new.packages <- packages[!(packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+sapply(packages, library, character.only = TRUE)
+
+library(DependenciesGraphs)
+library(PowerGridNetworking)
+
+files_to_convert <- list.files("/home/jonno/PowerGridNetworking/R", full.names = T) 
+
+file_names <- tibble(class = "name",
+       function_name =  basename(files_to_convert) %>%
+         str_replace(.,"(.R$)", ""),
+       type = "arguments",
+       value =  basename(files_to_convert) %>%
+         str_replace(.,"(.R$)", "")
+)
+```
+
+
+#Find functions
+
+This code block finds all the functions that are in the package but not necessarily declared elsewhere
+
+```{r}
+
+all_functions <- files_to_convert %>%
+  map_df(~{
+    print(basename(.x))
+    tx  <- read_lines(.x, ) 
+
+      look_for <- ".+(?=<-(\\s*)?function)" 
+      
+      #replace the 
+      tx2 <- str_extract_all(tx, pattern = look_for) %>%
+        tibble(value = ., function_name = basename(.x) %>%
+         str_replace(.,"(.R$)", "")) %>%
+        filter(!is.na(value), !grepl("#", value), !grepl("character\\(0\\)", value) )
+      
+    
+  }) %>%
+  mutate( value = function_name,
+          type = "functions",
+          class = "name")
+
+```
+
+
+
+#replace
+ this is a list of words that need replacing throughout the entire package. this may include miss-spellings CamelCase or other similar changes.
+ 
+```{r}
+
+#make a data frame of all the arguments and variables in the package
+all_funcs_in_package <- tibble(class = "name",
+  function_name = ls("package:PowerGridNetworking"),
+  type = "functions",
+  value = ls("package:PowerGridNetworking")
+       )
+
+function_variable_df <-all_funcs_in_package$function_name %>% map_df(~{
+  
+  test <-as.list(args(.x)) %>% as.matrix() %>%
+    tibble(arguments = rownames(.), variables = .[,1] %>% as.character(),
+           class = sapply(., class)) %>%
+    select(-1) %>%
+    mutate_all(., ~ifelse(nchar(.)<1, NA, .)) %>% #some of the strings are empty these need to be replaced with NA values and ignored
+    mutate(function_name = .x)
+}) %>%
+  gather(key = type, value = value, -function_name, -class) %>%
+  bind_rows(., all_funcs_in_package) %>% #add in the function names themselves
+  bind_rows(., all_functions ) %>% #not all functions in the package are exported. This adds the function name of all the functions
+  #create the first pass changes
+  mutate(snakecase_1 = to_any_case(value)) %>%
+  filter(!(class %in% c("NULL", "logical", "numeric") & type == "variables"), !is.na(value)) #remove the elements that either can't or shouldn't be changed
+
+
+#List of all the variables that need changing
+change_df <- function_variable_df %>%
+  group_by(value, snakecase_1, type) %>%
+  summarise(counts = n()) %>%
+  ungroup
+
+#Do any custom changing that falls outside regular conversion to snake case
+#this is effectively irregular changes
+change_df2 <- change_df %>%
+  mutate(snakecase_2 = case_when(
+    snakecase_1 == "balenced_power" ~ "net_generation",
+    snakecase_1 == "link_limit" ~"edge_limit",
+    snakecase_1 == "line_limit" ~"edge_limit",
+    snakecase_1 == "link" ~"edge_name",
+    snakecase_1 == "edgename" ~"edge_name",
+    snakecase_1 == "groupingvar" ~ "grouping_var",
+    snakecase_1 == "balenced_gen_dem" ~ "balance_generation_and_demand",
+    snakecase_1 == "demand_var" ~ "demand",
+    snakecase_1 == "generation_var" ~ "generation",
+    snakecase_1 == "listof_lists" ~ "network_list",
+    snakecase_1 == "name" & type == "arguments"~ "node_name",
+    snakecase_1 == "vertex_name"~ "node_name",
+    snakecase_1 == "delete_orders"~ "deletion_order",
+    TRUE ~snakecase_1
+  ),
+  map_from =value, # ifelse(type == "variables", paste0('"',value, '"'), value), #I think that becuase of the lookahead/behind the quotations don't give me anythg. Also if a function has been used that takes unquoted variables then the replacement won't occur.
+  map_to =snakecase_2) %>%# ifelse(type == "variables", paste0('"',snakecase_2, '"'), snakecase_2))
+select(map_from, map_to) %>%
+  group_by(map_from, map_to) %>%
+  summarise(counts = n()) %>% ungroup
+	
+
+#New number of variables and arguments
+unique(change_df2$snakecase_2) %>% length
+
+#previous number of varialbles and arguments
+unique(function_variable_df$value) %>% length
+
+#find which functions the variable or argument are used in to check if the name is consistent
+target_value <- "name"
+
+function_variable_df %>%
+  filter(value ==target_value)
+ 
+
+#This file can be loaded if the package is overwritten and further changes are still needed
+#saveRDS(change_df2, file.path("/home/jonno/Name_changing_script_files","PowerGridNetworking_name_changes.rds"))
+
+#change_df2 <- readRDS(file.path("/home/jonno/Name_changing_script_files","PowerGridNetworking_name_changes.rds"))
+
+```
+
+files is being left as is, because it doesn't refer to a full path
+
+
+#Clean scripts
+
+This block of code is probably the scariest it changes all the variables in the rmd files that have used the functions I have changed.
+It isn't really any scarier than changing the original package but it feels that way regardless.
+
+There needs to be some text compare and hand changing after doing this. especially as the variables of some of the data loaded from sources will be changed as well. This is not an automatic task!
+
+```{r}
+
+list.files("/home/jonno/Spring_Embeddings_Paper", full.names = T, pattern = ".R") %>%
+  walk(~{
+    
+    print(basename(.x))
+    tx  <- read_lines(.x, ) 
+    tx2 <- tx
+    
+    for(n in 1:nrow(change_df2)){
+      
+      target_out <- change_df2 %>%
+        slice(n) 
+      
+      look_for <- paste0('(?<![_a-zA-Z\\.])(',target_out$map_from,')','(?![_a-zA-Z\\.])')#uses negative lookahead and negative look behind..Ninja!
+      
+      #replace the 
+      tx2 <- str_replace_all(tx2, pattern = look_for, target_out$map_to)
+      
+    }
+    
+    new_path <- ifelse(grepl(".Rmd", .x), gsub(".Rmd", "_2.Rmd", .x), gsub(".R", "_2.R", .x))
+    
+    writeLines(tx2, con= new_path)
+    
+  })
+
+```
+
+
+
+#replacing
+
+When replacing, that which is being replaced cannot be preceded or followed by a letter or an underscore. This is to prevent the accidental replacing of part words.
+
+I do this replacement using a negative lookahead and a negative lookbehind.
+
+```{r}
+
+
+files_to_convert %>%
+  walk(~{
+    print(basename(.x))
+    tx  <- read_lines(.x, ) 
+    tx2 <- tx
+    
+    for(n in 1:nrow(change_df2)){
+      
+      target_out <- change_df2 %>%
+        slice(n) 
+      
+      look_for <- paste0('(?<![_a-zA-Z])(',target_out$map_from,')','(?![_a-zA-Z])')#uses negative lookahead and negative look behind..Ninja!
+      
+      #replace the 
+      tx2 <- str_replace_all(tx2, pattern = look_for, target_out$map_to)
+      
+    }
+    
+    writeLines(tx2, con=.x)
+    
+  })
+
+
+```
+
+#rename the function files themselves
+
+this chunk renames the files into snake case. The file names are not so important as they do not impact the names of the functions that they contain... this is not matlab.
+
+```{r}
+files_to_convert_to <- files_to_convert
+
+for( x in 1:length(files_to_convert_to)){
+  
+  function_name <- basename(files_to_convert_to[x]) %>%
+    str_replace(.,"(.R$)", "")
+  
+  #check to see if function is actually exported
+  there_is_a_match <- match(function_name, change_df2$map_from)
+  
+  #if there is a match replace otherwise skip
+  if(!is.na(there_is_a_match)){
+    
+    target_out <- change_df2 %>%
+      slice(there_is_a_match) 
+    
+    look_for <- paste0('(?<![_a-zA-Z"])(',target_out$map_from,')','(?![_a-zA-Z"])')#uses negative lookahead and negative look behind..Ninja!
+    
+    #replace the 
+    replace_with <- str_replace_all(function_name, pattern = look_for, target_out$map_to)
+    
+    
+  } else{
+    replace_with <-to_any_case(function_name) #if there is no match just replace the file name with snakecase
+  } 
+  
+  print(paste0("from ", function_name, " : to ",replace_with)) 
+  
+  files_to_convert_to[x] <- replace_with
+  
+}
+
+
+
+file_name_convertor <- tibble(from = basename(files_to_convert), to =  paste0(files_to_convert_to, ".R"), from_path = files_to_convert, to_path = file.path(dirname(files_to_convert), to ))
+
+file.rename(from = file_name_convertor$from_path, to = file_name_convertor$to_path)
+
+
+```
+
+
+
+#Find dependencies between functions
+
+This chunk uses the DependenciesGraphs package. It allows an interactive mapping od the network created by the function dependencies within a pacakge
+```{r}
+dep <- envirDependencies("package:PowerGridNetworking")
+
+plot(dep)
+launch.app()
+
+#This graph can be plotted however is convenient to show the dependency structure of the package.
+dependency_graph <- graph_from_data_frame(dep$fromto, vertices = dep$Nomfun)
+
+
+
+test <-as_data_frame(dependency_graph, what = "vertices") %>%
+  mutate(component = components(dependency_graph)$membership) %>%
+  left_join(tibble(component = 1:length(components(dependency_graph)$csize), size = components(dependency_graph)$csize)) %>%
+  filter(size ==1)
+
+
+```
+
+

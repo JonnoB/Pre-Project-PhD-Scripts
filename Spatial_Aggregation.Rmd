@@ -1,0 +1,333 @@
+---
+title: "Spatial aggregation"
+author: "Jonathan Bourne"
+date: "13/01/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+Incorporating fine‐scale environmental heterogeneity into broad‐extent models 
+Laura J. Graham
+
+https://ropensci.github.io/grainchanger/
+
+#Functions
+
+```{r}
+
+voronoi_dirty <- function(df, g){
+  
+  #This is a really grubby function that creates the GB voronoi
+  
+  UK_geodata <- MakeMapDF(g, read_csv(file.path("/home/jonno/Dropbox/Jonathan_Bourne_Phd_Folder", "point.csv"))) %>%
+  filter(PositionType =="Geo Space")
+
+shapefile <- file.path("/home/jonno/Dropbox/Jonathan_Bourne_Phd_Folder/ShapeFiles UK",
+                       "Countries_December_2017_Ultra_Generalised_Clipped_Boundaries_in_UK_WGS84.shp")
+
+GB <- st_read(shapefile) %>%
+  filter(ctry17cd !="N92000002") %>%
+  st_union()
+
+#cropping the shetland isles from great britain
+sfc_map <-  as(GB, "Spatial") %>% st_as_sf %>%
+  st_crop(c(xmin = -7.5, ymin = 50, xmax = 2, ymax = 59)) 
+
+#Nodes
+node_coords <- UK_geodata %>%
+  select(Latitude, Longitude, node =  Node) %>%
+  distinct() %>%
+  left_join(., tibble(df), by = "node" )
+  #left_join(., k_list[[5]]$node_embeddings, by = "node" )
+
+#convert the dataframe to an sf object
+node_z_sf <- node_coords  %>%
+  #select(Latitude, Longitude, elevation) %>%
+  st_as_sf(., coords = c("Longitude", "Latitude")) 
+#add in the correct projection data to align with the map
+st_crs(node_z_sf) <- st_crs(sfc_map)
+node_z_sf <- st_transform(node_z_sf, st_crs(sfc_map))
+
+  #create the tessellation
+  v <- st_voronoi(st_combine(node_z_sf)) 
+  
+  #clip the tesselation then convert back into an sf object to allow the simple features to be joined back in
+  #the key simple feature is of course z
+  clipped_tess_node <- st_intersection(st_cast(v), st_union(sfc_map)) %>% 
+    st_sf(geom=.) %>%
+    st_join(node_z_sf) %>%
+    filter(!is.na(elevation))
+  
+}
+
+ 
+spatial_smoothing_setse <- function(g, k_min = 1000, k_range = 0){
+  
+  #This only works for the power grid
+  
+  {UKg <- g %>%
+            #    Proportional_Load(., 1, PowerFlow = "power_flow", Link.Limit = "edge_capacity") %>%
+                set.edge.attribute(. , "distance", value = 1) %>%
+        set.edge.attribute(., "Area", value = 1) %>%
+        calc_spring_youngs_modulus(., "power_flow", "edge_capacity", 
+                                   minimum_value = k_min, stretch_range = k_range ) %>%
+        calc_spring_constant(., youngs_mod ="E", A = "Area", distance = "distance") %>%
+        normalise_dc_load(.,  
+                           generation = "generation", 
+                           demand  = "demand",
+                           net_generation = "net_generation", 
+                           capacity = "edge_capacity",
+                           edge_name = "edge_name", 
+                           node_name = "name",
+                           power_flow = "power_flow")  %>%
+  #prevents NaNs when edge capacity is zero
+  set_edge_attr(., "edge_capacity", 
+                value = ifelse(is.finite(edge_attr(.,"edge_capacity")), edge_attr(.,"edge_capacity"), 0 ) ) 
+
+}
+
+
+#takes about 60 secs
+UK_SETSe_data <- SETSe_auto(UKg, 
+           force ="net_generation", 
+           distance = "distance", 
+           edge_name = "edge_name",
+           sparse = FALSE,
+           hyper_iters = 40,
+           sample = 100,
+           verbose = T) %>%
+  map(~{.x %>% mutate(k_min = k_min, k_range = k_range)})
+
+return(UK_SETSe_data)
+
+}
+
+process_smoothed <- function(embedded_list){
+  #processes a list of SETSe embeddings created using spatial_smoothing_setse2 to output a dataframe of elevations
+  
+  combos <- embedded_list %>% map_df(~{.x$node_embeddings %>%
+      select(node, elevation, k_min, k_range) %>%
+      mutate(normalised_elev = (elevation- mean(elevation))/sd(elevation)) })
+  
+}
+```
+
+
+#non-zero range
+
+```{r}
+
+g <- readRDS(file.path(power_grid_graphs_path,  paste0("UK_high_voltage.rds")))
+
+k_combos <- expand_grid(k_min = c(1e2, 1e3, 1e4), k_range = c(1e2, 1e3, 1e4))
+
+target_file <- file.path("/home/jonno/Dropbox/IEEE_Networks", "embeds_k_combos.rds")
+
+if(file.exists(target_file)){
+  embeds_k_combos_list <- read_rds(file.path("/home/jonno/Dropbox/IEEE_Networks", "embeds_k_combos.rds"))
+} else {
+  
+  embeds_k_combos_list <- 1:nrow(k_combos) %>%
+  map(~spatial_smoothing_setse(g, 
+                                k_min = k_combos$k_min[.x], 
+                                k_range = k_combos$k_range[.x])) 
+  
+  write_rds(embeds_k_combos, target_file)
+  
+}
+
+
+
+embeds_k_combos_df <- process_smoothed(embeds_k_combos_list) 
+
+voronoi_embeds_k_combos<- voronoi_dirty(embeds_k_combos_df, g)
+
+voronoi_embeds_k_combos  %>%
+  filter(k_min == 100) %>%
+  ggplot(., aes(fill = elevation)) + geom_sf(lwd = 0) + 
+    coord_sf() + 
+    facet_grid(k_min~k_range)+
+    scale_fill_viridis(option = "D") + 
+    labs(title = "UK voronoi elevation for three k values")
+
+
+embeds_k_combos_df  %>%
+  mutate(k = paste("k min", k_min, "k range", k_range)) %>%
+  ggplot(aes(x = elevation, colour = factor(k))) + geom_density() +
+  labs(title = "Elevation distribution by k",
+       colour = "k")
+
+```
+
+
+
+```{r}
+
+k_combos_0 <- expand_grid(k_min = c(1e2, 1e3, 1e4), k_range = 0)
+
+  embeds_k_combos_0 <- 1:nrow(k_combos_0) %>%
+  map(~spatial_smoothing_setse(g, 
+                                k_min = k_combos_0$k_min[.x], 
+                                k_range = k_combos_0$k_range[.x])) 
+
+embeds_k_combos_df_0 <- process_smoothed(embeds_k_combos_0) 
+
+embeds_k_combos_df_0  %>%
+  mutate(k = paste("k min", k_min, "k range", k_range)) %>%
+  ggplot(aes(x = elevation, colour = factor(k))) + geom_density() +
+  labs(title = "Elevation distribution by k",
+       colour = "k")
+  
+```
+
+
+
+#permute edges version
+
+This is a test and not very interesting
+```{r}
+
+permute_edges <- function(g, seed = 1, k_min = 100, k_range = 1000){
+#The function permutes the edges of the network and then embeds.
+  #THis is to see what affect this has on the elevation distribution
+set.seed(seed)
+new_order <- sample(ecount(g))
+g2 <- set.edge.attribute(g, "power_flow", value = get.edge.attribute(g, "power_flow")[new_order]) 
+g3 <- set.edge.attribute(g2, "edge_capacity", value = get.edge.attribute(g2, "edge_capacity")[new_order])
+
+ {UKg <- g3 %>%
+            #    Proportional_Load(., 1, PowerFlow = "power_flow", Link.Limit = "edge_capacity") %>%
+                set.edge.attribute(. , "distance", value = 1) %>%
+        set.edge.attribute(., "Area", value = 1) %>%
+        calc_spring_youngs_modulus(., "power_flow", "edge_capacity", 
+                                   minimum_value = k_min, stretch_range = k_range ) %>%
+        calc_spring_constant(., youngs_mod ="E", A = "Area", distance = "distance") %>%
+        normalise_dc_load(.,  
+                           generation = "generation", 
+                           demand  = "demand",
+                           net_generation = "net_generation", 
+                           capacity = "edge_capacity",
+                           edge_name = "edge_name", 
+                           node_name = "name",
+                           power_flow = "power_flow")  %>%
+  #prevents NaNs when edge capacity is zero
+  set_edge_attr(., "edge_capacity", 
+                value = ifelse(is.finite(edge_attr(.,"edge_capacity")), edge_attr(.,"edge_capacity"), 0 ) ) 
+
+}
+
+
+#takes about 60 secs
+UK_SETSe_data <- SETSe_auto(UKg, 
+           force ="net_generation", 
+           distance = "distance", 
+           edge_name = "edge_name",
+       #    tstep = 0.1, 
+        #   mass = 1/vcount(UKg), 
+         #  tol = 2e-3,
+           sparse = FALSE,
+           hyper_iters = 40,
+           sample = 100,
+           verbose = T)
+
+return(UK_SETSe_data)
+
+}
+
+
+permuted_list <- 1:10 %>%
+  map(~{
+    
+    permute_edges(g, seed = .x)
+  })
+
+
+embedded_permute_elev <-1:10 %>%map_df(~{ 
+  permuted_list[[.x]]$node_embeddings %>% select(node, elevation) %>%
+  mutate(seed = .x,
+         normalised_elev = (elevation- mean(elevation))/sd(elevation))}
+) %>%
+  left_join(., g_df %>% select(node = name, net_generation), by = "node")
+
+embedded_permute_elev %>%
+  ggplot(aes(x = elevation, colour = factor(seed))) + geom_density() +
+  labs(title = "Elevation distribution by k",
+       colour = "k")
+
+```
+
+#test norm
+
+See's what the relationship between the elevation embeddings and the force distribution is.
+
+```{r}
+UK_df <- readRDS(file.path(power_grid_graphs_path,  paste0("UK_high_voltage.rds"))) %>% 
+  as_data_frame( what = "vertices") %>%
+  mutate(normed = (net_generation - mean(net_generation))/sd(net_generation))
+
+mean(UK_df$net_generation)
+
+sum(UK_df$net_generation)
+sum(abs(UK_df$net_generation))
+
+sum(abs(UK_df$normed))
+
+
+embeds_k_combos_df %>%
+  filter(k_range == 100,
+         k_min == 100) %>%
+  summarise(sum = sum(abs(normalised_elev)))
+
+test <- embeds_k_combos_df %>%
+  left_join(UK_df %>% rename(node = name) %>% select(node, net_generation)) %>%
+    group_by(k_min, k_range) %>%
+    mutate(elevation_distrib = (elevation- mean(elevation))/(sum(abs(elevation))/2),
+           net_gen_distrib = (net_generation- mean(net_generation))/(sum(abs(net_generation))/2)) %>%
+  mutate(diff = net_gen_distrib - elevation_distrib,
+         rank = rank(diff)) %>%
+  filter(k_min == 100, k_range == 100)
+  
+
+#SETSe makes the distribution smaller in this case
+test %>%
+  filter(k_min == 100, k_range == 100) %>%
+  ggplot(aes(x = net_gen_distrib, y = elevation_distrib)) + geom_point()
+
+
+test %>%
+  filter(k_min == 100, k_range == 100)  %>%
+  ggplot(aes(y = diff, x = rank )) + geom_point()
+
+test %>%
+  pivot_longer(cols = c(elevation_distrib, net_gen_distrib), names_to = "type") %>%
+  ggplot(aes(x = value, colour = type)) + geom_density()
+
+
+voronoi_test <- voronoi_embeds_k_combos  %>%
+    filter(k_min == 100, k_range== 100) %>%
+  left_join(.,test %>% select(node, elevation_distrib, net_gen_distrib, diff, rank))
+
+voronoi_test %>%
+  ggplot(., aes(fill = diff)) + geom_sf(lwd = 0) + 
+    coord_sf() + 
+    facet_grid(k_min~k_range)+
+    scale_fill_viridis(option = "D")
+
+```
+
+
+
+```{r}
+
+embeddings_data <- biconnected_network %>%
+  prepare_SETSe_continuous(., node_names = "name", force_var = "force") %>%
+  SETSe_auto(., k = "weight")
+
+
+voronoi_dirty(embeds_list[[1]]$node_embeddings,g)
+```
+
+

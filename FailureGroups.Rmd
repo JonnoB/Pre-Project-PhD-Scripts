@@ -17,7 +17,8 @@ http://api.gbif.org/v1/e3ce628e-9683-4af7-b7a9-47eef785d3bb
 Get the round number that an edge was deleted.
 
 ```{r}
-
+Saved_Sims <- "/home/jonno/HPC_jobs/UK_high_voltage"
+Deletion_Order_Folder <- "/home/jonno/Dropbox/IEEE_Networks/loss_order_10k"
 FolderVect <- list.files(path = Saved_Sims) #folder where all the alpha FOLDERS are
 FileVect <- list.files(path = Deletion_Order_Folder) %>% gsub(".rds", "",.) #folder where all the deletion order FILES are
 new.type <- FolderVect[!(FolderVect %in% FileVect)] #The FOLDERS that are not present as FILES
@@ -47,7 +48,27 @@ file.path(Saved_Sims, new.type) %>%
   )
 
 } 
-  
+  #updated version
+if(length(new.type)>0){
+file.path(Saved_Sims, new.type) %>% #list the different network of network rds files present
+    map_df(~{
+        file <- .x
+        print(file)
+        read_rds(file) %>%
+          RoundTypeRemoved(.)  %>%
+          mutate(Sim = gsub(".rds", "",file) %>% basename)
+      }
+    ) %>%
+    group_by(Sim) %>%
+    mutate(RoundRemoved = ifelse(is.na(RoundRemoved), max(RoundRemoved), RoundRemoved),
+         alpha = basename(.x)) %>% 
+    ungroup
+
+  Removeddf %>%
+        write_rds(x = ., paste0(file.path(Deletion_Order_Folder,basename(.x)), ".rds"))
+
+} 
+
 AllRemovedNodes <- list.files(Deletion_Order_Folder, full.names = TRUE) %>%
   map_df(~read_rds(.x))
 
