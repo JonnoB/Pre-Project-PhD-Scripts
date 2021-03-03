@@ -129,7 +129,10 @@ SETSe_core_time_shift_hd <- function(node_embeddings,
     #create the tension matrix
     #####
     #dz is the change in eleveation
-    dzvect <- elevation[non_empty_t_vect,] - elevation[non_empty_vect,] #The difference in height between adjacent nodes 
+    #Using drop = FALSE here prevents single feature/column matrices from being conveted to vectors
+    #Although vectors are faster this causes an error to be thrown when using rowSums when calculating Hvect
+    #and so cannot be used. 
+    dzvect <- elevation[non_empty_t_vect,, drop = FALSE] - elevation[non_empty_vect,, drop = FALSE] #The difference in height between adjacent nodes 
     
     #the hypotenuse of the spring distance triangle
     Hvect <- sqrt(rowSums(dzvect^2) + dvect^2)

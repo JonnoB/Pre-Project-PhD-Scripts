@@ -57,7 +57,7 @@
 #' 
 #' @export
 
-SETSe_auto <- function(g, 
+SETSe_auto_hd <- function(g, 
                        force ="force", 
                        distance = "distance", 
                        edge_name = "edge_name",
@@ -85,16 +85,19 @@ SETSe_auto <- function(g,
   
   if(verbose){print("prepping dataset")}
   #Prep the data before going into the converger
-  Prep <- SETSe_data_prep(g = g, 
+  Prep <- SETSe_data_prep_hd(g = g, 
                           force = force, 
                           distance = distance, 
                           mass = mass, 
                           edge_name = edge_name,
                           k = k,
                           sparse = sparse)
-  
+
+  #calculate the  default static limit if one is not provided.
+  #By default this is the absolute static_force at initiation
   if(is.null(static_limit)){
-    static_limit <- sum(abs(igraph::vertex_attr(g, force)))
+    static_limit <- force %>%
+      map(~igraph::vertex_attr(g, .x)) %>% unlist %>% {sum(abs(.))}
   }
   
   #This is a safety feature!
@@ -197,7 +200,7 @@ SETSe_auto <- function(g,
     } 
     
     # print( memory_df$common_drag_iter[drag_iter])
-    embeddings_data <- SETSe_core(
+    embeddings_data <- SETSe_core_hd(
       node_embeddings = Prep$node_embeddings, 
       ten_mat = Prep$ten_mat, 
       non_empty_matrix = Prep$non_empty_matrix, 
@@ -217,7 +220,7 @@ SETSe_auto <- function(g,
     
     memory_df$tstep[drag_iter] <- tstep_adapt
     
-    memory_df$res_stat[drag_iter] <- sum(abs(node_embeds$static_force))
+    memory_df$res_stat[drag_iter] <- sum(abs(node_embeds %>% select(starts_with("static_force_"))))
     #In certain circumstances SETSe core terminates straight away producing NA values.
     #The below line prevents NA values causing issues by ensureing that the params only produces a max res_stat
     memory_df$res_stat[drag_iter] <- ifelse(is.na(memory_df$res_stat[drag_iter]), res_stat_limit, memory_df$res_stat[drag_iter])
@@ -394,7 +397,7 @@ SETSe_auto <- function(g,
     
     
     print(paste0("Minimum tolerance not exceeded, running SETSe on best parameters, drag value ", signif(drag_val, 3)))
-    embeddings_data <- SETSe_core_time_shift(
+    embeddings_data <- SETSe_core_time_shift_hd(
       node_embeddings = Prep$node_embeddings, 
       ten_mat = Prep$ten_mat, 
       non_empty_matrix = Prep$non_empty_matrix, 
@@ -419,7 +422,7 @@ SETSe_auto <- function(g,
   #This is TRUE in almost all cases, but for bicomp is set to false.
   if(include_edges){  
     #Put in edge embeddings
-    embeddings_data$edge_embeddings <- calc_tension_strain(g = g,
+    embeddings_data$edge_embeddings <- calc_tension_strain_hd(g = g,
                                                            embeddings_data$node_embeddings,
                                                            distance = distance, 
                                                            edge_name = edge_name, 

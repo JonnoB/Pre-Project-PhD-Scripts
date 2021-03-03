@@ -111,7 +111,7 @@ embeddings_data <- biconnected_network %>%
 #peels
 
 ```{r}
-force_names <- c("dim", "dim2")
+force_names <- c("dim", "dim2", "dim3")
 
 set.seed(4)
  g <- generate_peels_network(LETTERS[4]) %>%
@@ -158,11 +158,26 @@ test <-SETSe_core_time_shift_hd(node_embeddings, ten_mat, non_empty_matrix, kvec
                        sample = 1,
                        static_limit = NULL)
 
+height_embeddings_df <- test$node_embeddings
+
 test$network_dynamics %>%
   ggplot(aes(x = Iter, y = log10(static_force))) + geom_line()
 
 
 test2 <- test$node_embeddings
+
+test <-SETSe_auto_hd(g,
+                     force = force_names,
+              max_iter = 60000, 
+                       tol = 2e-6, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL,
+                       noisy_termination = FALSE)
+
+
+test2 <- test$node_embeddings
+test3 <- test$edge_embeddings
 
 
 ```
