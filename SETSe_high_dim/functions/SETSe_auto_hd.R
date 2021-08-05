@@ -1,9 +1,9 @@
-#' SETSe embedding with automatic drag and timestep selection
+#' SETSe embedding with automatic drag and timestep selection for high-dimensional feature vectors
 #'
 #' Uses a grid search and a binary search to find appropriate convergence conditions.
 #' 
 #' @param g An igraph object
-#' @param force A character string. This is the node attribute that contains the force the nodes exert on the network.
+#' @param force A character vector. These are the nodes attributes that contain the force the nodes exert on the network.
 #' @param distance A character string. The edge attribute that contains the original/horizontal distance between nodes.
 #' @param edge_name A character string. This is the edge attribute that contains the edge_name of the edges.
 #' @param k A character string. This is k for the moment don't change it.
@@ -21,15 +21,15 @@
 #' @param sample Integer. The dynamics will be stored only if the iteration number is a multiple of the sample. 
 #'  This can greatly reduce the size of the results file for large numbers of iterations. Must be a multiple of the max_iter
 #' @param static_limit Numeric. The maximum value the static force can reach before the algorithm terminates early. This
-#' prevents calculation in a diverging system. The value should be set to some multiple greater than one of the force in the system.
-#' If left blank the static limit is the system absolute mean force.
+#'  prevents calculation in a diverging system. The value should be set to some multiple greater than one of the force in the system.
+#'  If left blank the static limit is the system absolute mean force.
 #' @param verbose Logical. This value sets whether messages generated during the process are suppressed or not.
 #' @param include_edges logical. An optional variable on whether to calculate the edge tension and strain. Default is TRUE.
 #'  included for ease of integration into the bicomponent functions.
 #' @param noisy_termination Stop the process if the static force does not monotonically decrease.
 #' 
 #' @details This is one of the most commonly used SETSe functions. It automatically selects the convergence time-step and drag values
-#' to ensure efficient convergence.
+#'  to ensure efficient convergence.
 #' 
 #' The noisy_termination parameter is used as in some cases the convergence process can get stuck in the noisy zone of SETSe space.
 #' To prevent this the process is stopped early if the static force does not monotonically decrease.  On large networks this 
@@ -39,7 +39,7 @@
 #' @return A list of four elements. A data frame with the height embeddings of the network, a data frame of the edge embeddings, 
 #' the convergence dynamics dataframe for the network as well as the search history for convergence criteria of the network
 #' 
-#' @seealso \code{\link{SETSe}} \code{\link{SETSe_bicomp}}
+#' @family SETSe
 #' @examples
 #' 
 #' set.seed(234) #set the random see for generating the network

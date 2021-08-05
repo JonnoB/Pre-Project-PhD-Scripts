@@ -20,12 +20,12 @@ I will try to fix it where possible.
 ```{r}
 library(devtools)
 library(roxygen2)
-setwd( "/home/jonno/PowerGridNetworking")
+setwd( "/home/jonno/rSETSe")
 document()
 setwd("/home/jonno")
-install("PowerGridNetworking")
-detach("package:PowerGridNetworking", unload = TRUE)
-library(PowerGridNetworking)
+install("rSETSe")
+detach("package:rsetse", unload = TRUE)
+library(rsetse)
 ```
 
 
@@ -40,7 +40,7 @@ sapply(packages, library, character.only = TRUE)
 library(DependenciesGraphs)
 library(PowerGridNetworking)
 
-files_to_convert <- list.files("/home/jonno/PowerGridNetworking/R", full.names = T) 
+files_to_convert <- list.files("/home/jonno/rSETSe/R", full.names = T) 
 
 file_names <- tibble(class = "name",
        function_name =  basename(files_to_convert) %>%
@@ -88,11 +88,15 @@ all_functions <- files_to_convert %>%
 
 #make a data frame of all the arguments and variables in the package
 all_funcs_in_package <- tibble(class = "name",
-  function_name = ls("package:PowerGridNetworking"),
+  function_name = ls("package:rsetse"),
   type = "functions",
-  value = ls("package:PowerGridNetworking")
-       )
+  value = ls("package:rsetse")
+       ) %>%
+  #remove data sets... there should be an automatic way of doing this
+filter(function_name != "biconnected_network")
 
+
+#find the variables used in all the functions
 function_variable_df <-all_funcs_in_package$function_name %>% map_df(~{
   
   test <-as.list(args(.x)) %>% as.matrix() %>%
@@ -160,6 +164,13 @@ function_variable_df %>%
 
 #change_df2 <- readRDS(file.path("/home/jonno/Name_changing_script_files","PowerGridNetworking_name_changes.rds"))
 
+
+change_df2 <- change_df2 %>%
+  filter(grepl("SETSe", map_from)) %>%
+  mutate(map_to = tolower(map_from) ,
+         map_to = map_to %>%
+           ifelse(.=="prepare_setse_binary", "prepare_categorical_force", .) %>%
+           ifelse(.=="prepare_setse_continuous", "prepare_continuous_force",.))
 ```
 
 files is being left as is, because it doesn't refer to a full path
@@ -174,7 +185,7 @@ There needs to be some text compare and hand changing after doing this. especial
 
 ```{r}
 
-list.files("/home/jonno/Spring_Embeddings_Paper", full.names = T, pattern = ".R") %>%
+list.files("/home/jonno/rSETSe/vignettes", full.names = T, pattern = ".R") %>%
   walk(~{
     
     print(basename(.x))
@@ -278,7 +289,8 @@ for( x in 1:length(files_to_convert_to)){
 
 file_name_convertor <- tibble(from = basename(files_to_convert), to =  paste0(files_to_convert_to, ".R"), from_path = files_to_convert, to_path = file.path(dirname(files_to_convert), to ))
 
-file.rename(from = file_name_convertor$from_path, to = file_name_convertor$to_path)
+#commented out for safety!
+#file.rename(from = file_name_convertor$from_path, to = file_name_convertor$to_path)
 
 
 ```
@@ -287,7 +299,7 @@ file.rename(from = file_name_convertor$from_path, to = file_name_convertor$to_pa
 
 #Find dependencies between functions
 
-This chunk uses the DependenciesGraphs package. It allows an interactive mapping od the network created by the function dependencies within a pacakge
+This chunk uses the DependenciesGraphs package. It allows an interactive mapping of the network created by the function dependencies within a pacakge
 ```{r}
 dep <- envirDependencies("package:PowerGridNetworking")
 

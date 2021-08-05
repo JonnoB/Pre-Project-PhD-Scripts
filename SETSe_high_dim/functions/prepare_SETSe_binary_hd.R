@@ -1,4 +1,4 @@
-#' Binary network prepare
+#' Prepare categorical netowrk for embedding, high dimensional version
 #' 
 #' This function prepares a binary network for SETSe projection.
 #' 
@@ -26,7 +26,7 @@
 #' 
 #' @return A network with the correct edge and node attributes for the embeddings process.
 #' 
-#' @seealso \code{\link{SETSe}}, \code{\link{SETSe_auto}}, \code{\link{SETSe_bicomp}}, \code{\link{prepare_SETSe_continuous}}
+#' @seealso \code{\code{\link{SETSe_auto_hd}}}
 #' @examples
 #' set.seed(234) #set the random see for generating the network
 #' g <- generate_peels_network(type = "E")

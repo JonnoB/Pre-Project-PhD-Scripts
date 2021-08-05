@@ -1,0 +1,85 @@
+---
+title: "UCL R festival of code"
+author: "Jonathan Bourne"
+date: "11/06/2021"
+output: html_document
+---
+
+```{r}
+library(rsetse)
+library(igraph)
+library(dplyr)
+library(ggraph)
+```
+
+
+
+```{r}
+
+biconnected_network %>%
+  ggraph() + 
+  geom_edge_link() +
+  geom_node_point(aes(colour = group), size = 10) +
+  geom_node_text(aes(label = name), repel = FALSE)
+
+
+```
+
+```{r}
+biconnected_network %>%
+  ggraph() + 
+  geom_edge_link() +
+  geom_node_point(aes(colour = name), size = 10) +
+  geom_node_text(aes(label = name), repel = FALSE)
+```
+
+
+```{r}
+
+g_prep <- biconnected_network %>%
+prepare_edges(.)
+
+convergent_result <- setse_expanded(g_prep, force = "force", k = "weight", tstep = 0.001) 
+
+ convergent_result %>% 
+   mutate(node_name_group = case_when(node %in% c("F", "E", "G")~ paste("node", node, "group", "B"),
+                                      TRUE~ paste("node", node, "group", "A"))) %>%
+    ggplot(aes(x = t, y = elevation, colour = node)) + 
+   geom_hline(yintercept = 0, linetype = 'dashed') +
+   geom_line() + 
+   facet_wrap(~node_name_group) 
+
+```
+
+```{r}
+
+set.seed(234) #set the random see for generating the network
+g <- generate_peels_network(type = "E")
+embeddings <- g %>%
+prepare_edges(k = 500, distance = 1) %>%
+#prepare the network for a binary embedding
+prepare_categorical_force(., node_names = "name",
+                     force_var = "class") %>%
+#embed the network using auto_setse
+  setse_auto(., force = "class_A")
+
+
+g %>%
+  ggraph() + 
+  geom_edge_link() +
+  geom_node_point(aes(colour = class), size = 10) +
+  geom_node_text(aes(label = sub_class), repel = FALSE)
+
+g %>% ggraph() +
+  geom_edge_fan()+
+  geom_node_point(aes(fill = class, shape = grepl("1", sub_class)), size=6) +
+  scale_shape_manual(values=c(21, 24)) +
+  guides(fill = "none", shape = "none")
+
+create_node_edge_df(embeddings) %>%
+  left_join(igraph::as_data_frame(g, what= "vertices"), by = c("node"="name")) %>%
+  ggplot(aes(x = tension_mean, y = elevation, colour = class)) + geom_jitter() +
+  labs(title = "Binary embeddings",
+       x = "mean tension")
+```
+

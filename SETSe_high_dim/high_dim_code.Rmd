@@ -7,6 +7,7 @@ editor_options:
   chunk_output_type: console
 ---
 
+#setup
 commit c3bba66
 ```{r}
 library(rsetse)
@@ -14,6 +15,20 @@ library(dplyr)
 library(ggraph)
 library(igraph)
 library(purrr)
+library(stringr)
+library(tidyr)
+library(magrittr)
+
+ if (!requireNamespace("BiocManager", quietly=TRUE))
+     install.packages("BiocManager")
+ #BiocManager::install("ChemmineR")
+library(ChemmineR)
+
+list.files("/home/jonno/Pre-Project PhD Scripts/SETSe_high_dim/functions", full.names = T) %>%
+lapply(., source)
+
+biconnected_network <- rsetse::biconnected_network
+
 ```
 
 ```{r}
@@ -55,7 +70,7 @@ test2 <- biconnected_network  %>%
 
 ```{r}
 # c("dim", "dim2", "dim3")
-force_names <- c("dim", "dim2")
+force_names <- c("dim", "dim2", "dim3")
 
 set.seed(4)
  g <- g %>%
@@ -179,6 +194,273 @@ test <-SETSe_auto_hd(g,
 test2 <- test$node_embeddings
 test3 <- test$edge_embeddings
 
+
+```
+
+#compare hd and ld
+
+```{r}
+force_names <- c("force")
+
+set.seed(4)
+ g <- biconnected_network %>%
+  prepare_SETSe_continuous_hd(., node_names = "name", force_var =force_names, k = 1000 )
+ 
+  g2 <- biconnected_network %>%
+  prepare_SETSe_continuous(., node_names = "name", force_var =force_names, k = 1000 )
+ 
+  
+test1 <- as_data_frame(g, what = "vertices")
+test2 <- as_data_frame(g2, what = "vertices")
+
+all_equal(test2, test2)
+  
+embedded_data_hd <-SETSe_auto_hd(g,
+                     force = force_names,
+              max_iter = 60000, 
+                       tol = 2e-6, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL,
+                       noisy_termination = FALSE)
+
+embedded_data_ld <-SETSe_bicomp(g,
+                     force = force_names,
+              max_iter = 60000, 
+                       tol = 2e-6, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL,
+                       noisy_termination = FALSE)
+
+
+microbenchmark(hd = SETSe_auto_hd(g,
+                     force = force_names,
+              max_iter = 60000, 
+                       tol = 2e-6, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL,
+                       noisy_termination = FALSE),
+             ld= SETSe_auto(g,
+                     force = force_names,
+              max_iter = 60000, 
+                       tol = 2e-6, 
+                       sparse = FALSE,
+                       sample = 1,
+                       static_limit = NULL,
+                       noisy_termination = FALSE)
+)
+
+all.equal(embedded_data_hd, embedded_data_ld)
+
+
+
+node_hd <- embedded_data_hd$node_embeddings %>%
+  set_names(., str_remove(names(.), "_dim"))
+
+node_ld <- embedded_data_ld$node_embeddings
+ 
+all_equal(node_hd, node_ld)
+
+test1 <- embedded_data_hd$time_taken
+
+test2 <- embedded_data_ld$time_taken
+
+all.equal(test1, test2)
+
+```
+
+
+```{r}
+data(sdfsample) 
+sdfset <- sdfsample
+sdfset # Returns summary of SDFset 
+
+sdf <- sdfset[[1]]
+
+make_molecule_graph <- function(sdf){
+  
+  { 
+    atom_df <-  atomblock(sdf) 
+    atom_df <- atom_df[,1:3] %>%
+      as_tibble %>%
+      mutate(atom_name = rownames(atom_df), atom = str_remove(atom_name, "_.+"),
+             node_name = 1:n(), 
+             values = 1) %>%
+      select(node_name, everything()) %>%
+      pivot_wider(names_from = atom, values_from = values, values_fill = 0)
+  }
+  
+  
+  edge_list <- bondblock(sdf) %>% as_tibble %>%
+    select(1:3) %>%
+    rename(from = C1, to = C2, bonds_raw = C3) %>%
+    mutate(bonds = bonds_raw*200)
+  
+  
+  g_out <- graph_from_data_frame(edge_list, directed = FALSE, vertices = atom_df) %>%
+    set.graph.attribute(., "graph_name",  sdfid(sdf))
+  
+  return(g_out)
+  
+}
+
+
+g_mol <- sdfset[[2]] %>%
+  make_molecule_graph()
+
+atom_names <- vertex_attr_names(g_mol)
+atom_indices <- (grep("atom_name", atom_names)+1):length(atom_names)
+
+g_mol_prepped <- g_mol  %>%
+   prepare_SETSe_continuous_hd(., node_names = "name", force_var = atom_names[atom_indices])
+
+
+embedded_mol <- SETSe_auto_hd(g_mol_prepped ,
+                              force = atom_names[atom_indices],
+                              k = "bonds",
+                              tstep = 0.01,
+                              max_iter = 20000, 
+                              tol = 2e-3, 
+                              sparse = FALSE,
+                              sample = 1,
+                              static_limit = NULL,
+                              noisy_termination = FALSE)
+
+
+node_embeddings <- embedded_mol$node_embeddings %>%
+  rowwise() %>%
+  mutate(euc = sqrt(sum(c_across(starts_with("static_force"))^2))) %>%
+  ungroup
+
+edge_embeddings <- embedded_mol$edge_embeddings
+  
+embedded_mol$network_dynamics %>%
+  ggplot(aes(x = Iter, y = log10(static_force))) + geom_line()
+
+
+test_edge_node <-create_node_edge_df_hd(embedded_mol) %>%
+  rowwise() %>%
+  mutate(force = sqrt(sum(c_across(starts_with("force_"))^2)),
+         elevation = sqrt(sum(c_across(starts_with("elevation_"))^2))) %>%
+  ungroup %>%
+  mutate(atom = get.vertex.attribute(g_mol_prepped, "atom_name")%>% str_remove(., "_.+"))
+  
+test_edge_node %>%
+  ggplot(aes(x = tension_mean, y = elevation, colour = atom)) + geom_point(size = 3) +
+  labs(title = "Molecule embedded into a 7 dimensional SETSe space manifold") 
+  
+  
+#what the molecule looks like
+ plot(sdfset[1], print=FALSE)
+
+
+sdf_info_df <- 1:100 %>% map_df(~{
+  
+  temp_g <- make_molecule_graph(sdfset[[.x]])
+  
+  tibble(id = .x, nodes = vcount(temp_g), edges = ecount(temp_g))
+  
+})
+  
+node_embeddings %>%
+  ggplot(aes(x = elevation_N)) + geom_density()
+
+```
+
+
+#embedding a lattice
+
+I am trying to embed the volanco image to see how what a meta-stable version looks like
+However, convergence is really slow and I don't know why. Maybe the regular structure causes issues? why?
+
+
+```{r}
+
+volcano2 <- volcano[10:60,1:50]
+
+nodes_df <- volcano2 %>% 
+  as_tibble %>%
+  mutate(rows = 1:n()) %>%
+  pivot_longer(cols = -rows, names_to = "columns") %>%
+  mutate(columns = str_remove(columns, "V") %>% as.numeric(),
+         from_node =  paste0(rows, "_", columns),
+          node_names = from_node) %>%
+  select(from_node, everything())
+
+
+nodes_df %>%
+  ggplot(aes(x = rows, y = columns, fill = value)) + geom_raster()+
+  scale_fill_viridis()
+
+edge_df <- nodes_df %>% select(-value)
+
+combinations <- tibble( rows = c(1, -1, 0, 0), columns = c(0,0, 1, -1))
+
+volcano_g  <- 1:nrow(combinations) %>%
+map_df(~{
+
+  edge_df %>% mutate(rows_neigh = rows + combinations[[.x,1]],
+                     columns_neigh = columns + combinations[[.x, 2]],
+                     to_node = paste0(rows_neigh, "_", columns_neigh))
+  
+}) %>%
+  filter(columns_neigh >0, columns_neigh<= ncol(volcano2),
+         rows_neigh >0, rows_neigh <=nrow(volcano2)) %>%
+  select(from_node, to_node, everything()) %>%
+graph_from_data_frame(., directed = FALSE, vertices = nodes_df) %>%
+  igraph::simplify()
+
+
+vcount(volcano_g)
+ecount(volcano_g)
+
+#max edges
+tot_nodes <- vcount(volcano_g)
+max_edges <- (tot_nodes^2-tot_nodes)/2
+max_edges
+#sparsity
+ecount(volcano_g)/max_edges
+
+test <- volcano_g %>%
+  prepare_SETSe_continuous(., node_names = "node_names", k = 500, force_var = "value", sum_to_one = F)
+
+test_res <- test %>%
+  SETSe_auto(.,  verbose = T, 
+             sparse = T,
+             tstep = 0.002,
+             tol = sum(abs(get.vertex.attribute(test, "force")))*0.002
+             )
+
+
+sum(abs(test_res$node_embeddings$static_force))
+
+node_results <- as_data_frame(test, what = "vertices") %>% tibble %>%
+  left_join(., test_res$node_embeddings %>% select(-force), by = c("name" = "node")) %>%
+  mutate(pre = (force - min(force))/(max(force)-min(force)),
+         post = (elevation - min(elevation))/(max(elevation)-min(elevation)),
+         diff = pre-post)
+
+
+
+
+node_results %>%
+  ggplot(aes(x = rows, y = columns, fill = pre)) + geom_raster()+
+  scale_fill_viridis()
+
+node_results %>%
+  select(name:columns, pre:diff) %>%
+  pivot_longer(cols = c(pre, post, diff), names_to = "type") %>%
+    filter(type =="diff") %>%
+  ggplot(aes(x = rows, y = columns, fill = value) ) + 
+  facet_wrap(~type) +
+  geom_raster() +
+  scale_fill_viridis()
+  
+
+test_res$network_dynamics %>%
+  ggplot(aes(x = Iter, log10(static_force))) + geom_point()
 
 ```
 

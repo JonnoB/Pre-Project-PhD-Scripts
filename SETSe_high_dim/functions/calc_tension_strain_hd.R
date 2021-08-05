@@ -1,4 +1,4 @@
-#' Calculate line tension and strain from the topology and node embeddings
+#' Calculate line tension and strain from the topology and node embeddings for high dimensional feature networks
 #' 
 #' This function calculates the line tension and strain characteristics for the edges in a graph.
 #' It is called by default by all the embedding functions (SETSe_*) but is included here for completeness.
@@ -49,7 +49,7 @@ calc_tension_strain_hd <- function(g, height_embeddings_df, distance = "distance
     tibble::as_tibble(.) 
   
   #get the embedded node elevation across all dimensions
-  elevation_df <- height_embeddings_df %>% dplyr::select(node, starts_with("elevation"))
+  elevation_df <- height_embeddings_df %>% dplyr::select(node, dplyr::starts_with("elevation"))
   
   #merge the edge list tand the node elevations for both the from and to nodes
   #The columns are also re-named for clarity
